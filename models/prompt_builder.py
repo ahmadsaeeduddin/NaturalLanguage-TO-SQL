@@ -20,8 +20,7 @@ def extract_schema(db_path):
 
 def build_prompt(nl_query, db_path):
     schema_info = extract_schema(db_path)
-    prompt = f"""### Task:
-Given the following database schema:
+    prompt = f""" translate English to SQL: Given the following database schema:
 
 {schema_info}
 
