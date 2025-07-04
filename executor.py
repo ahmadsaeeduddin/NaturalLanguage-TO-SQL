@@ -29,16 +29,16 @@ class SQLExecutor:
             }
 
 
-if __name__ == "__main__":
-    executor = SQLExecutor()
+# if __name__ == "__main__":
+#     executor = SQLExecutor()
     
-    test_query = "SELECT name, age FROM employees WHERE age > 30;"
-    result = executor.run_query(test_query)
+#     test_query = "SELECT name, age FROM employees WHERE age > 30;"
+#     result = executor.run_query(test_query)
     
-    if result["success"]:
-        print("✅ Query executed successfully.")
-        print("Columns:", result["columns"])
-        for row in result["rows"]:
-            print(row)
-    else:
-        print("❌ Query failed:", result["error"])
+#     if result["success"]:
+#         print("✅ Query executed successfully.")
+#         print("Columns:", result["columns"])
+#         for row in result["rows"]:
+#             print(row)
+#     else:
+#         print("❌ Query failed:", result["error"])
