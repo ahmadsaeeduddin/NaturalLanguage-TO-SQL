@@ -1,5 +1,5 @@
 
-# 📄 Text-to-SQL Interface using Hugging Face LLMs
+# 📄 Text-to-SQL Interface Project — Full Guide
 
 This project demonstrates how to convert natural language queries into SQL statements using a Large Language Model (LLM) from Hugging Face, and then execute those SQL queries on a sample SQLite database.
 
@@ -14,29 +14,41 @@ This project demonstrates how to convert natural language queries into SQL state
 
 ---
 
-## 📁 Project Structure
+You have two ways to run this:
+1. ✅ Using a locally **fine-tuned Hugging Face model** (`CodeT5` or similar).
+2. ✅ Using the **Groq API** to call a large hosted LLM like Llama 3.
+
+You’ll also run the generated SQL on a sample SQLite database.
+
+---
+
+## 📁 Recommended Project Structure
 
 ```
 text_to_sql_project/
 ├── data/
-│   └── sample.db          # SQLite database file
+│   └── sample.db
 ├── models/
-│   ├── prompt_builder.py  # Builds prompt for LLM
-│   └── sql_generator.py   # Loads LLM and generates SQL
+│   ├── prompt_builder.py   # Builds prompt from schema
+│   ├── sql_generator.py    # For local fine-tuned model
+│   ├── sql_generator_groq.py # For Groq API version
+│   ├── fine_tune.py        # Fine-tuning script
 ├── scripts/
-│   └── setup_db.py        # Creates and populates sample database
-├── executor.py            # Executes generated SQL
-├── app.py                 # (Optional) Main CLI or UI script
-├── requirements.txt       # Python dependencies
-└── .env                   # (Optional) for API keys
+│   └── setup_db.py         # Creates the SQLite DB
+├── executor.py             # Executes SQL queries
+├── .env                    # Stores API keys for Groq
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
 ## ⚙️ Prerequisites
 
-- **Python 3.9+**
-- Basic understanding of NLP and SQL
+- Python 3.9+
+- `pip install transformers datasets torch sqlparse requests python-dotenv`
+
+---
 
 ### Install dependencies:
 
@@ -48,173 +60,177 @@ SQLite is built-in with Python. No extra install needed.
 
 ---
 
-## ✅ STEP 1: Set Up Sample Database
+## ✅ STEP 1: Create a Sample SQLite DB
 
-Create and populate a simple SQLite database with tables `employees` and `departments`.
+In `scripts/setup_db.py`:
 
-**File:** `scripts/setup_db.py`
+```python
+# Creates a simple employees and departments table with dummy data.
+# Run it once:
 
-Run:
-
-```bash
 python scripts/setup_db.py
 ```
 
-This generates `data/sample.db` with some dummy data.
+It will generate `data/sample.db`.
 
 ---
 
-## ✅ STEP 2: Build Prompt Template
+## ✅ STEP 2: Build the Prompt
 
-**File:** `models/prompt_builder.py`
+`models/prompt_builder.py` extracts schema details:
 
-This script:
+```python
+import sqlite3
 
-1. Reads the SQLite schema (`PRAGMA table_info`).
-2. Builds a structured prompt for the LLM.
+def extract_schema(db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = cursor.fetchall()
 
-Example output:
+    schema = []
+    for (table,) in tables:
+        cursor.execute(f"PRAGMA table_info({table});")
+        columns = cursor.fetchall()
+        col_names = [col[1] for col in columns]
+        schema.append(f"Table: {table}({', '.join(col_names)})")
 
+    conn.close()
+    return "\n".join(schema)
+
+def build_prompt(nl_query, db_path):
+    schema_info = extract_schema(db_path)
+    return f"Given schema:\n{schema_info}\nQuestion: {nl_query}"
 ```
-### Task:
-Given the following database schema:
-
-Table: employees(id, name, age, department_id)
-Table: departments(id, name)
-
-Write an SQL query for:
-"Show the names of employees older than 30"
-```
-
-Test it by importing `build_prompt` in Python.
 
 ---
 
-## ✅ STEP 3: Load LLM & Generate SQL
+## ✅ OPTION A — Fine-Tune Your Own Model
 
-**File:** `models/sql_generator.py`
+### 1️⃣ Prepare a dataset
 
-This script:
+Example `spider_text_sql.csv`:
 
-1. Loads a Hugging Face model (e.g., `Salesforce/codet5-small`).
-2. Encodes the prompt.
-3. Generates SQL.
+`https://www.kaggle.com/datasets/mohammadnouralawad/spider-text-sql`
 
-**Important:** `t5-small` is generic — use `codet5` or a fine-tuned Text-to-SQL model for better results.
+### 2️⃣ Fine-tune: `models/fine_tune.py`
 
-Example usage:
+```python
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, Seq2SeqTrainer, Seq2SeqTrainingArguments
+
+df = pd.read_csv('spider_text_sql.csv')
+
+model_name = "Salesforce/codet5-base"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+
+   .........
+   .........
+   .........
+
+trainer.train()
+trainer.save_model("./my-finetuned-codet5")
+tokenizer.save_pretrained("./my-finetuned-codet5")
+```
+
+### 3️⃣ Use it in your pipeline
 
 ```python
 from models.prompt_builder import build_prompt
-from models.sql_generator import TextToSQLGenerator
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-db_path = "data/sample.db"
+class TextToSQLGenerator:
+    def __init__(self, model_name="./my-finetuned-codet5"):
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+
+    def generate_sql(self, prompt, max_length=128):
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        output = self.model.generate(**inputs, max_length=max_length, num_beams=4, early_stopping=True)
+        return self.tokenizer.decode(output[0], skip_special_tokens=True).strip()
+```
+
+---
+
+## ✅ OPTION B — Use Groq API
+s_function(examples):
+    i
+1️⃣ Store your Groq key in `.env`:
+
+```
+GROQ_API_KEY="YOUR_GROQ_KEY_HERE"
+```
+
+2️⃣ `models/sql_generator_groq.py`:
+
+```python
+import os, requests
+
+class TextToSQLGeneratorGroq:
+    def __init__(self, model_name="llama3-70b-8192"):
+        self.model_name = model_name
+        self.api_key = os.getenv("GROQ_API_KEY")
+        self.base_url = "https://api.groq.com/openai/v1/chat/completions"
+
+    def generate_sql(self, prompt):
+        ..........
+```
+
+3️⃣ Example usage:
+
+```python
+from prompt_builder import build_prompt
+from dotenv import load_dotenv
+from models.sql_generator_groq import TextToSQLGeneratorGroq
+
+load_dotenv()
+db_path = "../data/sample.db"
 nl_query = "List names of employees older than 30"
-
 prompt = build_prompt(nl_query, db_path)
-prompt = f"translate English to SQL: {prompt}"
 
-generator = TextToSQLGenerator(model_name="Salesforce/codet5-small")
-sql_query = generator.generate_sql(prompt)
-
-print(sql_query)
+generator = TextToSQLGeneratorGroq()
+print(generator.generate_sql(prompt))
 ```
 
 ---
 
-## ✅ STEP 4: Execute Generated SQL
+## ✅ Execute the Generated SQL
 
-**File:** `executor.py`
-
-This script:
-
-1. Connects to `sample.db`
-2. Runs the generated SQL
-3. Returns rows or an error
-
-Example usage:
+**executor.py**:
 
 ```python
-from executor import SQLExecutor
+import sqlite3
 
-executor = SQLExecutor()
-result = executor.run_query("SELECT name, age FROM employees WHERE age > 30;")
+class SQLExecutor:
+    def __init__(self, db_path="data/sample.db"):
+        self.db_path = db_path
 
-if result["success"]:
-    print("Columns:", result["columns"])
-    for row in result["rows"]:
-        print(row)
-else:
-    print("Error:", result["error"])
+    def run_query(self, sql_query):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(sql_query)
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+            conn.commit()
+            return {"success": True, "columns": columns, "rows": rows}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        finally:
+            conn.close()
 ```
 
 ---
 
-## ✅ STEP 5: End-to-End (Optional)
+## ✅ Final Best Practices
 
-**You can combine steps into `app.py`:**
-
-```python
-from models.prompt_builder import build_prompt
-from models.sql_generator import TextToSQLGenerator
-from executor import SQLExecutor
-
-db_path = "data/sample.db"
-nl_query = input("Enter your question: ")
-
-# Build prompt
-prompt = build_prompt(nl_query, db_path)
-prompt = f"translate English to SQL: {prompt}"
-print("\nPrompt:\n", prompt)
-
-# Generate SQL
-generator = TextToSQLGenerator(model_name="Salesforce/codet5-small")
-sql_query = generator.generate_sql(prompt)
-print("\nGenerated SQL:\n", sql_query)
-
-# Execute SQL
-executor = SQLExecutor()
-result = executor.run_query(sql_query)
-
-print("\nResult:")
-if result["success"]:
-    print("Columns:", result["columns"])
-    for row in result["rows"]:
-        print(row)
-else:
-    print("Error:", result["error"])
-```
-
-Run:
-
-```bash
-python app.py
-```
-
-✅ This will prompt you for a question, generate SQL, run it, and show results.
+✔️ Always test with simple single-table queries first.  
+✔️ Use Spider dataset for complex joins if you fine-tune.  
+✔️ Use `.env` and never hardcode your keys.  
+✔️ Validate generated SQL before executing!  
+✔️ Consider adding a Streamlit or Flask UI later.
 
 ---
 
-## 🧩 Tips & Next Steps
-
-- 🔒 Use a `.env` file if you use private API keys (e.g., OpenAI API).
-- 🗃️ Use DB Browser for SQLite to inspect your database.
-- 🔬 Fine-tune your model on Text-to-SQL data for better accuracy.
-- 🖥️ Add a Streamlit or Flask frontend if you want a web UI.
-
----
-
-## ✅ Useful Links
-
-- [Hugging Face Transformers](https://huggingface.co/transformers/)
-- [Salesforce CodeT5](https://huggingface.co/Salesforce/codet5-small)
-- [SQLite Browser](https://sqlitebrowser.org/)
-
----
-
-## 🏁 That’s It!
-
-You now have a working Text-to-SQL pipeline:
-- Natural Language → Prompt → SQL → Execute.
-
-Happy coding!
+## ✅ Now you have two robust ways to build your Text-to-SQL pipeline! 🚀
